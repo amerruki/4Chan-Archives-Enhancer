@@ -1466,6 +1466,14 @@
     // and redirect them to the correct archive (thebarchive/archiveofsins)
     if (currentHost !== 'archived.moe') return;
 
+    // Auto-redirect if we landed directly on a cross-hosted board page
+    const targetHost = BOARD_HOSTS[currentBoard];
+    if (targetHost && targetHost !== currentHost) {
+      const rest = location.pathname.replace(/^\/[^/]+/, '') + location.search + location.hash;
+      window.location.replace(`https://${targetHost}/${currentBoard}${rest}`);
+      return; // stop script execution, page is redirecting
+    }
+
     document.addEventListener('click', (e) => {
       const a = e.target.closest('a[href]');
       if (!a) return;
