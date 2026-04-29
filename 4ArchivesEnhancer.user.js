@@ -977,23 +977,6 @@
       if (posts.length < 2) return;
       this.origPositions = posts.map(el => ({ el, parent: el.parentNode, nextSib: el.nextSibling }));
 
-      // FoolFuuka's reply form lives inside article.thread (sometimes wrapped in
-      // its own aside.posts or a div). Threading inserts the children container
-      // as article.thread's next sibling, leaving the form stranded between the
-      // OP and the replies. Park the form's article.thread-direct-child wrapper
-      // AFTER article.thread, so the threaded container ends up between them.
-      this.replyFormAnchor = null;
-      const thread = document.querySelector('article.thread');
-      const formEl = thread?.querySelector('form');
-      if (thread && formEl) {
-        let wrap = formEl;
-        while (wrap.parentNode && wrap.parentNode !== thread) wrap = wrap.parentNode;
-        if (wrap.parentNode === thread) {
-          this.replyFormAnchor = { el: wrap, parent: wrap.parentNode, nextSib: wrap.nextSibling };
-          thread.after(wrap);
-        }
-      }
-
       const nums = [], nta = {};
       posts.forEach(a => { const n = getPostNum(a); if (n) { nums.push(n); nta[n] = a; } });
       const ni = {}; nums.forEach((n, i) => ni[n] = i);
@@ -1039,15 +1022,33 @@
       for (const a of getAllPosts()) {
         const n = getPostNum(a); if (!n || isChild.has(n)) continue;
         a.classList.add('ffe-threadOP');
-        const st = build(n); if (st) a.after(st);
+        const st = build(n);
+        if (!st) continue;
+        // OP (article.thread) is the wrapper around aside.posts and the reply form,
+        // so a.after(st) would land the container OUTSIDE the thread entirely,
+        // separating OP-direct-replies from the OP. Insert inside, before aside.posts,
+        // so threaded children render directly under the OP body.
+        if (a.matches('article.thread')) {
+          const aside = a.querySelector(':scope > aside.posts');
+          if (aside) aside.before(st);
+          else a.appendChild(st);
+        } else {
+          a.after(st);
+        }
       }
       this.addFoldButtons();
     },
 
     addFoldButtons() {
       for (const pn of Object.keys(this.childrenOf)) {
-        const pa = findPostArticle(pn); if (!pa || pa.querySelector('.ffe-thread-toggle')) continue;
-        const cont = pa.nextElementSibling;
+        const pa = findPostArticle(pn); if (!pa) continue;
+        // Already-bound check must ignore toggles that live inside nested containers
+        // (only relevant for the OP, whose container is INSIDE pa, not a sibling).
+        const ownToggle = [...pa.querySelectorAll('.ffe-thread-toggle')].find(b => !b.closest('.ffe-thread-container'));
+        if (ownToggle) continue;
+        const cont = pa.matches('article.thread')
+          ? pa.querySelector(':scope > .ffe-thread-container')
+          : pa.nextElementSibling;
         if (!cont?.classList.contains('ffe-thread-container')) continue;
         const cc = this.childrenOf[pn].length;
         const header = pa.querySelector('.post_data') || pa.querySelector('header');
@@ -1103,12 +1104,6 @@
       for (const e of this.origPositions) {
         if (e.nextSib?.parentNode === e.parent) e.parent.insertBefore(e.el, e.nextSib);
         else e.parent.appendChild(e.el);
-      }
-      if (this.replyFormAnchor) {
-        const { el, parent, nextSib } = this.replyFormAnchor;
-        if (nextSib?.parentNode === parent) parent.insertBefore(el, nextSib);
-        else parent.appendChild(el);
-        this.replyFormAnchor = null;
       }
       document.querySelectorAll('.ffe-threadOP').forEach(el => el.classList.remove('ffe-threadOP'));
     }
