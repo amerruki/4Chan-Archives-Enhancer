@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         4chan Archives Enhancer
-// @version      0.93
+// @version      0.94
 // @namespace    4chan-archives-enhancer
 // @description  Enhancements for the main 4Chan Archive sites (archived.moe, thebarchive.com, archiveofsins.com)
 // @license      MIT
@@ -20,14 +20,13 @@
 // @connect      archiveofsins.com
 // @connect      archived.moe
 // @connect      *
-// @grant        window.onurlchange
 // @run-at       document-start
 // ==/UserScript==
 
 (function () {
   'use strict';
   // Deliberate boot log: single source of truth that the script was injected.
-  console.log('[4AE] v0.93 loaded on', location.href, 'readyState=', document.readyState);
+  console.log('[4AE] v0.94 loaded on', location.href, 'readyState=', document.readyState);
 
   // ═══════════════════════════════════════════════════════════════════════
   //  SETTINGS & STORAGE
@@ -36,7 +35,7 @@
   const SETTINGS_KEY = 'ffe_settings';
   const MD5_TRACK_KEY = 'ffe_tracked_md5s';
   const SAVED_THREADS_KEY = 'ffe_saved_threads';
-  const VERSION = '0.93';
+  const VERSION = '0.94';
 
   const DEFAULTS = {
     imageExpansion: true, fitWidth: true, fitHeight: true,
@@ -826,8 +825,13 @@
         img.classList.remove('ffe-expanded');
         if (cfg.advanceOnContract) {
           const post = link.closest('article.thread, article.post');
-          let next = post?.nextElementSibling;
-          while (next && !next.matches('article.thread, article.post')) next = next.nextElementSibling;
+          // Use document order so threaded children aren't skipped (nextElementSibling
+          // hops over .ffe-thread-container and misses everything inside it).
+          const all = document.querySelectorAll('article.thread, article.post');
+          let next = null;
+          for (let i = 0; i < all.length - 1; i++) {
+            if (all[i] === post) { next = all[i + 1]; break; }
+          }
           if (next) next.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
         return;
@@ -859,6 +863,8 @@
       const link = e.target.closest('.thread_image_link');
       if (!link || /\.(webm|mp4)$/i.test(link.href || '')) return;
       if (isBlockedExpansion) return;
+      // Already expanded inline by the image-expansion feature — skip zoom (would duplicate).
+      if (link.querySelector('.post_image.ffe-expanded, .thread_image.ffe-expanded')) return;
       hoverImg = document.createElement('img');
       hoverImg.className = 'ffe-hover-zoom';
       document.body.appendChild(hoverImg);
@@ -1625,9 +1631,9 @@
   // This init only handles same-session click interception.
   function initCrossArchiveRedirect() {
     if (currentHost !== 'archived.moe') return;
-    if (!cfg.autoRedirectClickIntercept) return;
 
     document.addEventListener('click', (e) => {
+      if (!cfg.autoRedirectClickIntercept) return;
       const a = e.target.closest('a[href]');
       if (!a) return;
       const href = a.href;
@@ -2204,12 +2210,6 @@
       if (sName === 'MD5') {
         renderMD5Manager(sec);
       } else {
-        if (sName === 'Routing') {
-          const note = document.createElement('div');
-          note.style.cssText = 'margin:0 0 10px;padding:8px 10px;background:#1d1f21;border-left:3px solid #81a2be;color:#888;font-size:12px;line-height:1.4;';
-          note.textContent = 'Some boards aren’t archived on archived.moe and live on sister archives. Auto-routing sends you to the correct host. Disable below to override globally, or list boards to skip in "Exception Boards".';
-          sec.appendChild(note);
-        }
         for (const item of sections[sName]) {
           const row = document.createElement('div'); row.className = 'ffe-option';
           const type = item.type || 'checkbox';
