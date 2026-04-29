@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         4chan Archives Enhancer
-// @version      0.92
+// @version      0.93
 // @namespace    4chan-archives-enhancer
 // @description  Enhancements for the main 4Chan Archive sites (archived.moe, thebarchive.com, archiveofsins.com)
 // @license      MIT
@@ -26,7 +26,8 @@
 
 (function () {
   'use strict';
-  console.log('[4AE] Script injected at', document.readyState);
+  // Deliberate boot log: single source of truth that the script was injected.
+  console.log('[4AE] v0.93 loaded on', location.href, 'readyState=', document.readyState);
 
   // ═══════════════════════════════════════════════════════════════════════
   //  SETTINGS & STORAGE
@@ -35,7 +36,7 @@
   const SETTINGS_KEY = 'ffe_settings';
   const MD5_TRACK_KEY = 'ffe_tracked_md5s';
   const SAVED_THREADS_KEY = 'ffe_saved_threads';
-  const VERSION = '0.9';
+  const VERSION = '0.93';
 
   const DEFAULTS = {
     imageExpansion: true, fitWidth: true, fitHeight: true,
@@ -59,6 +60,18 @@
     indexThumbSize: 'default',
     threadThumbSize: 'default',
     headerPinned: true,
+
+    autoRedirectCrossArchive: true,
+    autoRedirectClickIntercept: true,
+    redirectExceptions: '',
+    showViewOriginalLinks: true,
+    md5DropdownMenu: true,
+    floatingPanelVisible: true,
+    topBarVisible: true,
+
+    savedThreadsSort: 'recent',
+    galPrevKey: 'ArrowLeft', galNextKey: 'ArrowRight',
+    galCloseKey: 'Escape', galSlideshowKey: ' ',
   };
 
   const SETTING_META = {
@@ -102,11 +115,28 @@
     galleryKey:        { section: 'General', label: 'Gallery Key',           desc: 'Key to open gallery', type: 'text' },
     goonKey:          { section: 'General', label: 'Goon Mode Key',          desc: 'Key to toggle Goon Mode', type: 'text' },
     md5FilterKey:        { section: 'General', label: 'MD5 Filter Key',        desc: 'Key to toggle MD5 Filter Mode', type: 'text' },
+
+    md5DropdownMenu:   { section: 'General', label: 'MD5 Dropdown Menu',     desc: 'Show the MD5 menu button on posts (requires MD5 Tracking)' },
+
+    autoRedirectCrossArchive:   { section: 'Routing', label: 'Auto-Redirect Cross-Archive Boards', desc: 'When you land on archived.moe for a board hosted elsewhere, redirect to the correct host' },
+    autoRedirectClickIntercept: { section: 'Routing', label: 'Intercept Cross-Archive Link Clicks', desc: 'Rewrite clicks on archived.moe links pointing to cross-hosted boards' },
+    redirectExceptions:         { section: 'Routing', label: 'Exception Boards', desc: 'Comma-separated boards to keep on archived.moe (e.g. b,s)', type: 'text-wide' },
+    showViewOriginalLinks:      { section: 'Routing', label: 'Show "View Original" Corner Links', desc: 'Floating link to the original board on 4chan' },
+
+    topBarVisible:        { section: 'Visibility', label: 'Show Top Bar',                desc: 'Show the script’s top bar (cog, board nav, saved threads)' },
+    floatingPanelVisible: { section: 'Visibility', label: 'Show Floating Panel',         desc: 'Show the floating side panel on thread pages' },
+
+    savedThreadsSort:  { section: 'General', label: 'Saved Threads Sort',    desc: 'Order in the saved-threads dropdown', type: 'select', options: ['recent', 'board', 'alphabetical'] },
+
+    galPrevKey:        { section: 'Gallery', label: 'Gallery Prev Key',      desc: 'Key for previous image (e.g. ArrowLeft, a)', type: 'text' },
+    galNextKey:        { section: 'Gallery', label: 'Gallery Next Key',      desc: 'Key for next image (e.g. ArrowRight, d)', type: 'text' },
+    galCloseKey:       { section: 'Gallery', label: 'Gallery Close Key',     desc: 'Key to close the gallery (e.g. Escape)', type: 'text' },
+    galSlideshowKey:   { section: 'Gallery', label: 'Gallery Slideshow Key', desc: 'Key to toggle slideshow (e.g. space)', type: 'text' },
   };
 
   function loadSettings() {
     try { const r = GM_getValue(SETTINGS_KEY, '{}'); return { ...DEFAULTS, ...(typeof r === 'string' ? JSON.parse(r) : r) }; }
-    catch { return { ...DEFAULTS }; }
+    catch (e) { console.warn('[4AE] storage read failed for', SETTINGS_KEY, '— falling back to defaults:', e); return { ...DEFAULTS }; }
   }
   function saveSettings(s) { GM_setValue(SETTINGS_KEY, JSON.stringify(s)); }
   let cfg = loadSettings();
@@ -114,7 +144,7 @@
   // MD5 storage
   function loadTrackedMD5s() {
     try { const r = GM_getValue(MD5_TRACK_KEY, '[]'); return new Set(typeof r === 'string' ? JSON.parse(r) : r); }
-    catch { return new Set(); }
+    catch (e) { console.warn('[4AE] storage read failed for', MD5_TRACK_KEY, '— falling back to defaults:', e); return new Set(); }
   }
   function saveTrackedMD5s() { GM_setValue(MD5_TRACK_KEY, JSON.stringify([...trackedMD5s])); }
   let trackedMD5s = loadTrackedMD5s();
@@ -122,7 +152,7 @@
   // Saved threads storage
   function loadSavedThreads() {
     try { const r = GM_getValue(SAVED_THREADS_KEY, '[]'); return typeof r === 'string' ? JSON.parse(r) : r; }
-    catch { return []; }
+    catch (e) { console.warn('[4AE] storage read failed for', SAVED_THREADS_KEY, '— falling back to defaults:', e); return []; }
   }
   function saveSavedThreads() { GM_setValue(SAVED_THREADS_KEY, JSON.stringify(savedThreadsList)); }
   let savedThreadsList = loadSavedThreads();
@@ -552,6 +582,23 @@
   const CROSS_HOSTED_BOARDS = Object.keys(BOARD_HOSTS);
   const isBlockedExpansion = currentHost === 'archived.moe' && CROSS_HOSTED_BOARDS.includes(currentBoard);
 
+  function redirectExceptionList() {
+    return String(cfg.redirectExceptions || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+  }
+
+  // Module-scope: run BEFORE bootstrap so we don't waste init work on a page that's about to navigate.
+  function redirectIfCrossArchive() {
+    if (currentHost !== 'archived.moe') return false;
+    if (!cfg.autoRedirectCrossArchive) return false;
+    const targetHost = BOARD_HOSTS[currentBoard];
+    if (!targetHost || targetHost === currentHost) return false;
+    if (redirectExceptionList().includes(currentBoard.toLowerCase())) return false;
+    const rest = location.pathname.replace(/^\/[^/]+/, '') + location.search + location.hash;
+    window.location.replace(`https://${targetHost}/${currentBoard}${rest}`);
+    return true;
+  }
+  if (redirectIfCrossArchive()) return;
+
   function getBoardUrl(board) {
     const host = BOARD_HOSTS[board] || 'archived.moe';
     return host === currentHost ? `/${board}/` : `https://${host}/${board}/`;
@@ -637,6 +684,47 @@
 
   function applyTextSize() {
     doc.classList.toggle('ffe-text-larger', cfg.textSize === 'larger');
+  }
+
+  // Live-apply: settings that can take effect without a page reload.
+  // Returns true if the change was fully applied; false if a reload is required.
+  function applySetting(key) {
+    switch (key) {
+      case 'fitWidth':
+      case 'fitHeight':
+        applyFitClasses(); return true;
+      case 'textSize':
+        applyTextSize(); return true;
+      case 'headerPinned':
+        applyHeaderPinState(); return true;
+      case 'topBarVisible':
+        document.querySelectorAll('.ffe-topbar').forEach(el => el.style.display = cfg.topBarVisible ? '' : 'none');
+        return true;
+      case 'floatingPanelVisible':
+        document.querySelectorAll('.ffe-float-panel').forEach(el => el.style.display = cfg.floatingPanelVisible ? '' : 'none');
+        return true;
+      case 'imageHoverZoom':
+      case 'quoteHighlight':
+      case 'autoRedirectClickIntercept':
+      case 'redirectExceptions':
+        return true;
+      case 'md5DropdownMenu':
+        if (cfg.md5DropdownMenu) {
+          document.querySelectorAll('article.thread, article.post').forEach(a => addMD5MenuButton(a));
+        } else {
+          document.querySelectorAll('.ffe-md5-menu-btn').forEach(b => b.remove());
+          document.querySelectorAll('[data-ffe-md5-btn]').forEach(el => delete el.dataset.ffeMd5Btn);
+        }
+        return true;
+      case 'showViewOriginalLinks':
+        if (cfg.showViewOriginalLinks) { try { initViewOriginalBoard(); } catch {} }
+        else { document.querySelectorAll('.ffe-view-original-corner').forEach(el => el.remove()); }
+        return true;
+      case 'savedThreadsSort':
+        return true;
+      default:
+        return false;
+    }
   }
 
   function copyToClipboard(text) {
@@ -744,6 +832,7 @@
       link.classList.add('ffe-expanding');
 
       proxyLoadImage(href, (loadUrl, isBlob) => {
+        if (!img.isConnected) { if (isBlob) URL.revokeObjectURL(loadUrl); return; }
         img.src = loadUrl;
         if (isBlob) img.dataset.ffeBlobUrl = loadUrl;
         img.classList.add('ffe-expanded');
@@ -759,19 +848,27 @@
   // ═══════════════════════════════════════════════════════════════════════
 
   function initImageHoverZoom() {
-    if (!cfg.imageHoverZoom) return;
     let hoverImg = null;
     document.addEventListener('mouseover', (e) => {
+      if (!cfg.imageHoverZoom) return;
       const link = e.target.closest('.thread_image_link');
       if (!link || /\.(webm|mp4)$/i.test(link.href || '')) return;
-      if (isBlockedExpansion) return; // No hover zoom on blocked boards either
+      if (isBlockedExpansion) return;
       hoverImg = document.createElement('img');
       hoverImg.className = 'ffe-hover-zoom';
       document.body.appendChild(hoverImg);
-      proxyLoadImage(link.href, (url, isBlob) => { if (hoverImg) { hoverImg.src = url; if (isBlob) hoverImg.dataset.ffeBlobUrl = url; } });
+      proxyLoadImage(link.href, (url, isBlob) => {
+        if (!hoverImg) { if (isBlob) URL.revokeObjectURL(url); return; }
+        hoverImg.src = url;
+        if (isBlob) hoverImg.dataset.ffeBlobUrl = url;
+      });
     });
     document.addEventListener('mousemove', (e) => {
       if (!hoverImg) return;
+      if (!cfg.imageHoverZoom) {
+        if (hoverImg.dataset.ffeBlobUrl) URL.revokeObjectURL(hoverImg.dataset.ffeBlobUrl);
+        hoverImg.remove(); hoverImg = null; return;
+      }
       hoverImg.style.left = Math.min(e.clientX + 20, window.innerWidth - hoverImg.offsetWidth - 10) + 'px';
       hoverImg.style.top = Math.min(e.clientY + 10, window.innerHeight - hoverImg.offsetHeight - 10) + 'px';
     });
@@ -879,6 +976,16 @@
       const posts = getAllPosts();
       if (posts.length < 2) return;
       this.origPositions = posts.map(el => ({ el, parent: el.parentNode, nextSib: el.nextSibling }));
+
+      // Reply form sits inside aside.posts. Threading moves articles around it,
+      // stranding it mid-thread. Park it at the end of aside.posts before threading.
+      this.replyFormAnchor = null;
+      const aside = document.querySelector('article.thread > aside.posts');
+      const form = aside?.querySelector(':scope > form, :scope > .reply, :scope > [class*="reply"]');
+      if (aside && form) {
+        this.replyFormAnchor = { el: form, parent: form.parentNode, nextSib: form.nextSibling };
+        aside.appendChild(form);
+      }
 
       const nums = [], nta = {};
       posts.forEach(a => { const n = getPostNum(a); if (n) { nums.push(n); nta[n] = a; } });
@@ -990,6 +1097,12 @@
         if (e.nextSib?.parentNode === e.parent) e.parent.insertBefore(e.el, e.nextSib);
         else e.parent.appendChild(e.el);
       }
+      if (this.replyFormAnchor) {
+        const { el, parent, nextSib } = this.replyFormAnchor;
+        if (nextSib?.parentNode === parent) parent.insertBefore(el, nextSib);
+        else parent.appendChild(el);
+        this.replyFormAnchor = null;
+      }
       document.querySelectorAll('.ffe-threadOP').forEach(el => el.classList.remove('ffe-threadOP'));
     }
   };
@@ -1090,6 +1203,7 @@
   }
 
   function addMD5MenuButton(article) {
+    if (!cfg.md5DropdownMenu) return;
     const md5 = getPostMD5(article); if (!md5) return;
 
     // Find the specific "View Same" link for this post
@@ -1238,12 +1352,39 @@
     dd.style.left = Math.min(r.left, window.innerWidth - 340) + 'px';
     dd.style.top = (r.bottom + 4) + 'px';
 
+    function sortedSaved() {
+      const mode = cfg.savedThreadsSort || 'recent';
+      const pinned = savedThreadsList.filter(t => t.pinned);
+      const rest = savedThreadsList.filter(t => !t.pinned);
+      const cmp = (a, b) => {
+        if (mode === 'board') return (a.board || '').localeCompare(b.board || '');
+        if (mode === 'alphabetical') return (a.title || '').localeCompare(b.title || '');
+        return new Date(b.addedAt || 0) - new Date(a.addedAt || 0);
+      };
+      pinned.sort(cmp); rest.sort(cmp);
+      return pinned.concat(rest);
+    }
+
     function render() {
       dd.innerHTML = '';
       if (savedThreadsList.length === 0) {
         dd.innerHTML = '<div class="ffe-saved-empty">No saved threads</div>';
       } else {
-        savedThreadsList.forEach((t, i) => {
+        const sortRow = document.createElement('div');
+        sortRow.style.cssText = 'display:flex;align-items:center;gap:6px;padding:4px 8px;border-bottom:1px solid #444;font-size:11px;color:#888;';
+        sortRow.appendChild(document.createTextNode('Sort: '));
+        const sortSel = document.createElement('select');
+        sortSel.style.cssText = 'background:#1d1f21;border:1px solid #555;color:#c5c8c6;font-size:11px;padding:1px 4px;';
+        for (const opt of ['recent', 'board', 'alphabetical']) {
+          const o = document.createElement('option'); o.value = opt; o.textContent = opt;
+          if ((cfg.savedThreadsSort || 'recent') === opt) o.selected = true;
+          sortSel.appendChild(o);
+        }
+        sortSel.addEventListener('change', () => { cfg.savedThreadsSort = sortSel.value; saveSettings(cfg); render(); });
+        sortRow.appendChild(sortSel);
+        dd.appendChild(sortRow);
+
+        for (const t of sortedSaved()) {
           const item = document.createElement('div'); item.className = 'ffe-saved-item';
           const board = document.createElement('span'); board.className = 'ffe-saved-board'; board.textContent = `/${t.board}/`;
 
@@ -1262,11 +1403,22 @@
           link.target = '_blank';
           link.rel = 'noopener';
 
+          const pin = document.createElement('span');
+          pin.className = 'ffe-saved-pin';
+          pin.textContent = t.pinned ? '\u2605' : '\u2606';
+          pin.title = t.pinned ? 'Unpin' : 'Pin';
+          pin.style.cssText = `cursor:pointer;margin-right:4px;color:${t.pinned ? '#f0c060' : '#666'};`;
+          pin.addEventListener('click', () => { t.pinned = !t.pinned; saveSavedThreads(); render(); });
+
           const rm = document.createElement('span'); rm.className = 'ffe-saved-remove'; rm.textContent = '\u00d7'; rm.title = 'Remove';
-          rm.addEventListener('click', () => { savedThreadsList.splice(i, 1); saveSavedThreads(); render(); });
-          item.appendChild(board); item.appendChild(link); item.appendChild(rm);
+          rm.addEventListener('click', () => {
+            const idx = savedThreadsList.indexOf(t);
+            if (idx >= 0) savedThreadsList.splice(idx, 1);
+            saveSavedThreads(); render();
+          });
+          item.appendChild(pin); item.appendChild(board); item.appendChild(link); item.appendChild(rm);
           dd.appendChild(item);
-        });
+        }
       }
 
       // Manual add row — always shown
@@ -1428,6 +1580,7 @@
   // ═══════════════════════════════════════════════════════════════════════
 
   function initViewOriginalBoard() {
+    if (!cfg.showViewOriginalLinks) return;
     // Only on archived.moe thread pages for cross-hosted boards
     if (!isThreadPage || !isBlockedExpansion) return;
 
@@ -1461,33 +1614,24 @@
   //  10b. CROSS-ARCHIVE LINK REDIRECT
   // ═══════════════════════════════════════════════════════════════════════
 
+  // Page-load redirect runs at module scope via redirectIfCrossArchive().
+  // This init only handles same-session click interception.
   function initCrossArchiveRedirect() {
-    // On archived.moe, intercept clicks on links pointing to cross-hosted boards
-    // and redirect them to the correct archive (thebarchive/archiveofsins)
     if (currentHost !== 'archived.moe') return;
-
-    // Auto-redirect if we landed directly on a cross-hosted board page
-    const targetHost = BOARD_HOSTS[currentBoard];
-    if (targetHost && targetHost !== currentHost) {
-      const rest = location.pathname.replace(/^\/[^/]+/, '') + location.search + location.hash;
-      window.location.replace(`https://${targetHost}/${currentBoard}${rest}`);
-      return; // stop script execution, page is redirecting
-    }
+    if (!cfg.autoRedirectClickIntercept) return;
 
     document.addEventListener('click', (e) => {
       const a = e.target.closest('a[href]');
       if (!a) return;
       const href = a.href;
-      // Match links like /b/thread/123, /s/search/..., /hc/, etc. on this same host
       const m = href.match(/^https?:\/\/(?:www\.)?archived\.moe\/([^/]+)(\/.*)?$/);
       if (!m) return;
       const board = m[1];
       const rest = m[2] || '/';
       const targetHost = BOARD_HOSTS[board];
-      if (!targetHost) return; // not a cross-hosted board
-      // Don't redirect links pointing to the current page (same thread, just anchor scrolling)
-      const sameThread = isThreadPage && board === currentBoard &&
-        a.pathname === location.pathname;
+      if (!targetHost) return;
+      if (redirectExceptionList().includes(board.toLowerCase())) return;
+      const sameThread = isThreadPage && board === currentBoard && a.pathname === location.pathname;
       if (sameThread) return;
       e.preventDefault();
       e.stopPropagation();
@@ -1497,7 +1641,7 @@
       } else {
         window.location.href = newUrl;
       }
-    }, true); // capture phase to intercept before other handlers
+    }, true);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -1720,10 +1864,27 @@
     cleanupTimer() { if (this.slideshowTimer) { clearTimeout(this.slideshowTimer); this.slideshowTimer = null; } },
     handleKey(e) {
       if (!this.el?.parentNode) return false;
-      switch (e.key) {
-        case 'Escape': this.close(); return true;
-        case 'ArrowLeft': if (e.shiftKey) this.rotate(-90); else if (e.ctrlKey) this.slideshow?this.stopSlideshow():this.startSlideshow(); else this.navigate(-1); return true;
-        case 'ArrowRight': if (e.shiftKey) this.rotate(90); else if (e.ctrlKey) this.slideshow?this.stopSlideshow():this.startSlideshow(); else this.navigate(1); return true;
+      const k = e.key;
+      const matches = (binding, ev) => {
+        if (!binding) return false;
+        if (binding === ' ') return ev.key === ' ' || ev.code === 'Space';
+        return ev.key === binding || ev.key.toLowerCase() === binding.toLowerCase();
+      };
+      if (matches(cfg.galCloseKey, e)) { this.close(); return true; }
+      if (matches(cfg.galSlideshowKey, e)) { this.slideshow ? this.stopSlideshow() : this.startSlideshow(); return true; }
+      if (matches(cfg.galPrevKey, e)) {
+        if (e.shiftKey) this.rotate(-90);
+        else if (e.ctrlKey) this.slideshow ? this.stopSlideshow() : this.startSlideshow();
+        else this.navigate(-1);
+        return true;
+      }
+      if (matches(cfg.galNextKey, e)) {
+        if (e.shiftKey) this.rotate(90);
+        else if (e.ctrlKey) this.slideshow ? this.stopSlideshow() : this.startSlideshow();
+        else this.navigate(1);
+        return true;
+      }
+      switch (k) {
         case 'Enter': { const v = this.nodes.frame.querySelector('video'); if (v) v.paused?v.play():v.pause(); else this.navigate(1); return true; }
         case 'p': case 'P': { const v = this.nodes.frame.querySelector('video'); if (v) v.paused?v.play():v.pause(); return true; }
       }
@@ -1745,6 +1906,7 @@
   // ═══════════════════════════════════════════════════════════════════════
 
   function initFloatingPanel() {
+    if (!cfg.floatingPanelVisible) return;
     const panel = document.createElement('div');
     panel.className = 'ffe-float-panel';
 
@@ -2035,14 +2197,30 @@
       if (sName === 'MD5') {
         renderMD5Manager(sec);
       } else {
+        if (sName === 'Routing') {
+          const note = document.createElement('div');
+          note.style.cssText = 'margin:0 0 10px;padding:8px 10px;background:#1d1f21;border-left:3px solid #81a2be;color:#888;font-size:12px;line-height:1.4;';
+          note.textContent = 'Some boards aren’t archived on archived.moe and live on sister archives. Auto-routing sends you to the correct host. Disable below to override globally, or list boards to skip in "Exception Boards".';
+          sec.appendChild(note);
+        }
         for (const item of sections[sName]) {
           const row = document.createElement('div'); row.className = 'ffe-option';
           const type = item.type || 'checkbox';
 
+          const reloadPill = document.createElement('span');
+          reloadPill.className = 'ffe-reload-pill';
+          reloadPill.textContent = 'Reload required';
+          reloadPill.style.cssText = 'display:none;margin-left:6px;padding:1px 6px;font-size:10px;background:#5a3a2a;color:#f0a060;border-radius:3px;';
+          const onChanged = () => {
+            saveSettings(cfg);
+            const handled = applySetting(item.key);
+            reloadPill.style.display = handled ? 'none' : 'inline-block';
+          };
+
           if (type === 'checkbox') {
             const lbl = document.createElement('label');
             const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = !!cfg[item.key];
-            cb.addEventListener('change', () => { cfg[item.key] = cb.checked; saveSettings(cfg); });
+            cb.addEventListener('change', () => { cfg[item.key] = cb.checked; onChanged(); });
             lbl.appendChild(cb); lbl.appendChild(document.createTextNode(' ' + item.label)); row.appendChild(lbl);
           } else if (type === 'text' || type === 'text-wide' || type === 'number') {
             const lbl = document.createElement('label'); lbl.textContent = item.label + ': ';
@@ -2052,17 +2230,37 @@
             if (type === 'number') { input.min = 0; input.max = 10000; input.style.width = '70px'; }
             else if (type === 'text-wide') { input.className = 'ffe-text-wide'; }
             else { input.style.width = '60px'; }
-            input.addEventListener('change', () => { cfg[item.key] = type === 'number' ? (parseFloat(input.value)||0) : input.value; saveSettings(cfg); });
+            input.addEventListener('change', () => { cfg[item.key] = type === 'number' ? (parseFloat(input.value)||0) : input.value; onChanged(); });
             lbl.appendChild(input); row.appendChild(lbl);
           } else if (type === 'select') {
             const lbl = document.createElement('label'); lbl.textContent = item.label + ': ';
             const sel = document.createElement('select');
             for (const opt of item.options) { const o = document.createElement('option'); o.value = opt; o.textContent = opt; if (cfg[item.key] === opt) o.selected = true; sel.appendChild(o); }
-            sel.addEventListener('change', () => { cfg[item.key] = sel.value; saveSettings(cfg); });
+            sel.addEventListener('change', () => { cfg[item.key] = sel.value; onChanged(); });
             lbl.appendChild(sel); row.appendChild(lbl);
           }
           const desc = document.createElement('span'); desc.className = 'ffe-desc'; desc.textContent = item.desc;
-          row.appendChild(desc); sec.appendChild(row);
+          row.appendChild(desc);
+          row.appendChild(reloadPill);
+          sec.appendChild(row);
+        }
+        if (sName === 'Routing') {
+          const map = document.createElement('div');
+          map.style.cssText = 'margin-top:14px;padding:8px 10px;background:#1d1f21;color:#888;font-size:11px;font-family:monospace;line-height:1.5;';
+          const title = document.createElement('div');
+          title.style.cssText = 'color:#aaa;margin-bottom:4px;';
+          title.textContent = 'Cross-Hosted Board Map';
+          map.appendChild(title);
+          const grouped = {};
+          for (const [board, host] of Object.entries(BOARD_HOSTS)) {
+            (grouped[host] ||= []).push(board);
+          }
+          for (const [host, boards] of Object.entries(grouped)) {
+            const row = document.createElement('div');
+            row.textContent = `${host}: ${boards.map(b => '/' + b + '/').join(' ')}`;
+            map.appendChild(row);
+          }
+          sec.appendChild(map);
         }
       }
       sectionContainer.appendChild(sec);
@@ -2205,6 +2403,41 @@
     });
     actions.appendChild(exportLink);
 
+    const exportJsonLink = document.createElement('a'); exportJsonLink.textContent = 'Export JSON';
+    exportJsonLink.addEventListener('click', () => {
+      if (trackedMD5s.size === 0) { statusSpan.textContent = 'Nothing to export.'; statusSpan.style.color = '#cc6666'; return; }
+      const data = { trackedMD5s: [...trackedMD5s] };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+      a.download = `ffe-md5-hashes-${trackedMD5s.size}.json`; a.click(); URL.revokeObjectURL(a.href);
+      statusSpan.textContent = `Exported ${trackedMD5s.size} hashes as JSON.`; statusSpan.style.color = '#b5bd68';
+    });
+    actions.appendChild(exportJsonLink);
+
+    const importJsonLink = document.createElement('a'); importJsonLink.textContent = 'Import JSON';
+    const importJsonInput = document.createElement('input'); importJsonInput.type = 'file'; importJsonInput.accept = '.json'; importJsonInput.style.display = 'none';
+    importJsonInput.addEventListener('change', () => {
+      const file = importJsonInput.files[0]; if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const data = JSON.parse(reader.result);
+          const arr = Array.isArray(data) ? data : (Array.isArray(data.trackedMD5s) ? data.trackedMD5s : null);
+          if (!arr) { statusSpan.textContent = 'No "trackedMD5s" array found.'; statusSpan.style.color = '#cc6666'; return; }
+          let added = 0;
+          for (const h of arr) { if (typeof h === 'string' && h && !trackedMD5s.has(h)) { trackedMD5s.add(h); added++; } }
+          saveTrackedMD5s(); highlightTrackedPosts(); refresh();
+          statusSpan.textContent = `Imported ${added} new hash${added === 1 ? '' : 'es'}.`;
+          statusSpan.style.color = '#b5bd68';
+        } catch { statusSpan.textContent = 'Invalid JSON.'; statusSpan.style.color = '#cc6666'; }
+        importJsonInput.value = '';
+      };
+      reader.readAsText(file);
+    });
+    importJsonLink.addEventListener('click', () => importJsonInput.click());
+    actions.appendChild(importJsonLink);
+    actions.appendChild(importJsonInput);
+
     const clearLink = document.createElement('a'); clearLink.textContent = 'Clear All';
     clearLink.style.color = '#cc6666';
     clearLink.addEventListener('click', () => {
@@ -2231,6 +2464,7 @@
   // ═══════════════════════════════════════════════════════════════════════
 
   function addSettingsLink() {
+    if (!cfg.topBarVisible) return;
     headerControls = document.createElement('div');
     headerControls.className = 'ffe-topbar';
 
@@ -2297,6 +2531,11 @@
   //  INIT
   // ═══════════════════════════════════════════════════════════════════════
 
+  let _ffeObserver = null;
+  function disposeObserver() {
+    if (_ffeObserver) { try { _ffeObserver.disconnect(); } catch (_) {} _ffeObserver = null; }
+  }
+
   function bootstrap() {
     const inits = [
       applyFitClasses, applyTextSize, addSettingsLink, initBoardNav,
@@ -2310,7 +2549,8 @@
       try { fn(); } catch (e) { console.error('[4AE] Init failed:', fn.name || 'anonymous', e); }
     }
 
-    const observer = new MutationObserver((mutations) => {
+    disposeObserver();
+    _ffeObserver = new MutationObserver((mutations) => {
       for (const m of mutations) for (const node of m.addedNodes) {
         if (node.nodeType !== 1) continue;
         if (node.matches?.('article.thread, article.post')) { cachePost(node); if (cfg.md5Tracking) addMD5MenuButton(node); }
@@ -2321,7 +2561,7 @@
       if (cfg.md5Tracking) highlightTrackedPosts();
     });
     const target = document.querySelector('.thread, #thread, article.thread') || document.getElementById('main') || document.body;
-    observer.observe(target, { childList: true, subtree: true });
+    _ffeObserver.observe(target, { childList: true, subtree: true });
   }
 
   let bootstrapped = false;
@@ -2329,17 +2569,29 @@
     if (bootstrapped) return;
     if (!document.body) return;
     bootstrapped = true;
-    bootstrap();
+    try { bootstrap(); }
+    catch (e) { console.error('[4AE] bootstrap() threw — features may be partially loaded:', e); }
+  }
+  // Indefinite body wait — never silently give up. Warns once at 10s.
+  const _bootStart = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+  let _bootWarned = false;
+  function waitForBody() {
+    if (bootstrapped) return;
+    if (document.body) { tryBootstrap(); return; }
+    const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    if (!_bootWarned && now - _bootStart > 10000) {
+      _bootWarned = true;
+      console.warn('[4AE] still waiting for document.body after 10s — Safari/AdGuard/network slow path');
+    }
+    requestAnimationFrame(waitForBody);
   }
 
   if (document.readyState !== 'loading') {
     tryBootstrap();
   } else {
-    document.addEventListener('DOMContentLoaded', tryBootstrap);
-    window.addEventListener('load', tryBootstrap);
-    // Polling fallback for AdGuard timing edge cases
-    const poll = setInterval(() => { if (document.body) { clearInterval(poll); tryBootstrap(); } }, 50);
-    setTimeout(() => clearInterval(poll), 10000);
+    document.addEventListener('DOMContentLoaded', tryBootstrap, { once: true });
+    window.addEventListener('load', tryBootstrap, { once: true });
+    requestAnimationFrame(waitForBody);
   }
 
 })();
