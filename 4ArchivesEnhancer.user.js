@@ -977,14 +977,21 @@
       if (posts.length < 2) return;
       this.origPositions = posts.map(el => ({ el, parent: el.parentNode, nextSib: el.nextSibling }));
 
-      // Reply form sits inside aside.posts. Threading moves articles around it,
-      // stranding it mid-thread. Park it at the end of aside.posts before threading.
+      // FoolFuuka's reply form lives inside article.thread (sometimes wrapped in
+      // its own aside.posts or a div). Threading inserts the children container
+      // as article.thread's next sibling, leaving the form stranded between the
+      // OP and the replies. Park the form's article.thread-direct-child wrapper
+      // AFTER article.thread, so the threaded container ends up between them.
       this.replyFormAnchor = null;
-      const aside = document.querySelector('article.thread > aside.posts');
-      const form = aside?.querySelector(':scope > form, :scope > .reply, :scope > [class*="reply"]');
-      if (aside && form) {
-        this.replyFormAnchor = { el: form, parent: form.parentNode, nextSib: form.nextSibling };
-        aside.appendChild(form);
+      const thread = document.querySelector('article.thread');
+      const formEl = thread?.querySelector('form');
+      if (thread && formEl) {
+        let wrap = formEl;
+        while (wrap.parentNode && wrap.parentNode !== thread) wrap = wrap.parentNode;
+        if (wrap.parentNode === thread) {
+          this.replyFormAnchor = { el: wrap, parent: wrap.parentNode, nextSib: wrap.nextSibling };
+          thread.after(wrap);
+        }
       }
 
       const nums = [], nta = {};
