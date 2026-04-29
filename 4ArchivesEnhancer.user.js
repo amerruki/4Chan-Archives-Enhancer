@@ -205,7 +205,7 @@
     .ffe-backlinks-bottom .ffe-backlink:hover { color: red; }
 
     /* Quote Threading */
-    .ffe-thread-container { margin-left: 20px; border-left: 1px solid rgba(128,128,128,0.3); }
+    .ffe-thread-container { margin-left: 20px; border-left: 1px solid rgba(128,128,128,0.3); clear: both; }
     .ffe-thread-container.ffe-collapsed { display: none; }
     .ffe-threadOP { clear: both; }
     .ffe-thread-toggle {
@@ -237,7 +237,12 @@
     :root.ffe-md5Filter .ffe-md5filter-indicator { display: inline-block; }
 
     /* MD5 Tracking — highlight the whole visible post area */
-    .ffe-md5-tracked { border-left: 3px solid #e74c3c !important; background: rgba(231,76,60,0.08) !important; }
+    .ffe-md5-tracked { background: rgba(231,76,60,0.05) !important; position: relative; }
+    .ffe-md5-tracked::before {
+      content: ''; position: absolute; top: 5px; left: 5px;
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #e74c3c; pointer-events: none; z-index: 2;
+    }
     .ffe-md5-menu-btn { cursor: pointer; font-size: 10px; margin-left: 4px; opacity: 0.6; text-decoration: none; }
     .ffe-md5-menu-btn:hover { opacity: 1; }
     .ffe-md5-dropdown {
