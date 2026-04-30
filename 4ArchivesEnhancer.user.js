@@ -2359,7 +2359,7 @@
         search.appendChild(icons.search());
         const rm = document.createElement('a'); rm.textContent = '\u00d7'; rm.title = 'Remove';
         rm.addEventListener('click', () => { trackedMD5s.delete(hash); saveTrackedMD5s(); highlightTrackedPosts(); refresh(); });
-        entry.appendChild(span); entry.appendChild(search); entry.appendChild(rm); list.appendChild(entry);
+        entry.appendChild(search); entry.appendChild(span); entry.appendChild(rm); list.appendChild(entry);
       }
     }
 
