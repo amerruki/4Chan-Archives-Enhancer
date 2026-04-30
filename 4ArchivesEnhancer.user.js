@@ -2324,7 +2324,7 @@
 
     footer.appendChild(Object.assign(document.createElement('span'), {className:'ffe-spacer'}));
     footer.appendChild(statusEl); footer.appendChild(document.createTextNode(' '));
-    footer.appendChild(Object.assign(document.createElement('span'), {style:'color:#707880', textContent:`Archive Enhancer Settings v${VERSION}`}));
+    footer.appendChild(Object.assign(document.createElement('span'), {style:'color:#707880', textContent:`v${VERSION}`}));
     dialog.appendChild(footer);
 
     overlay.appendChild(dialog); document.body.appendChild(overlay);
