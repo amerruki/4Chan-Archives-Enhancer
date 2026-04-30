@@ -562,6 +562,10 @@
       {tag:'rect', attrs:{x:'3',y:'11',width:'18',height:'11',rx:'2',ry:'2'}},
       'M7 11V7a5 5 0 0 1 9.9-1'
     ], t || 'Header unpinned'),
+    search: (t) => svgIcon([
+      {tag:'circle', attrs:{cx:'11',cy:'11',r:'8'}},
+      {tag:'line', attrs:{x1:'21',y1:'21',x2:'16.65',y2:'16.65'}}
+    ], t || 'Search'),
   };
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -2348,9 +2352,14 @@
       for (const hash of trackedMD5s) {
         const entry = document.createElement('div'); entry.className = 'ffe-md5-entry';
         const span = document.createElement('span'); span.textContent = hash;
+        const search = document.createElement('a');
+        search.href = `https://archived.moe/_/search/image/${hash}/`;
+        search.target = '_blank'; search.rel = 'noopener';
+        search.title = 'Search on archived.moe';
+        search.appendChild(icons.search());
         const rm = document.createElement('a'); rm.textContent = '\u00d7'; rm.title = 'Remove';
         rm.addEventListener('click', () => { trackedMD5s.delete(hash); saveTrackedMD5s(); highlightTrackedPosts(); refresh(); });
-        entry.appendChild(span); entry.appendChild(rm); list.appendChild(entry);
+        entry.appendChild(span); entry.appendChild(search); entry.appendChild(rm); list.appendChild(entry);
       }
     }
 
