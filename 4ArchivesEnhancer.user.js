@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         4chan Archives Enhancer
-// @version      0.94
+// @version      0.949
 // @namespace    4chan-archives-enhancer
 // @description  Enhancements for the main 4Chan Archive sites (archived.moe, thebarchive.com, archiveofsins.com)
 // @license      MIT
@@ -26,7 +26,7 @@
 (function () {
   'use strict';
   // Deliberate boot log: single source of truth that the script was injected.
-  console.log('[4AE] v0.94 loaded on', location.href, 'readyState=', document.readyState);
+  console.log('[4AE] v0.949 loaded on', location.href, 'readyState=', document.readyState);
 
   // ═══════════════════════════════════════════════════════════════════════
   //  SETTINGS & STORAGE
@@ -35,7 +35,7 @@
   const SETTINGS_KEY = 'ffe_settings';
   const MD5_TRACK_KEY = 'ffe_tracked_md5s';
   const SAVED_THREADS_KEY = 'ffe_saved_threads';
-  const VERSION = '0.94';
+  const VERSION = '0.949';
 
   const DEFAULTS = {
     imageExpansion: true, fitWidth: true, fitHeight: true,
