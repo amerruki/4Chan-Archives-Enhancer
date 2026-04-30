@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         4chan Archives Enhancer
-// @version      0.949
+// @version      0.95
 // @namespace    4chan-archives-enhancer
 // @description  Enhancements for the main 4Chan Archive sites (archived.moe, thebarchive.com, archiveofsins.com)
 // @license      MIT
@@ -26,7 +26,7 @@
 (function () {
   'use strict';
   // Deliberate boot log: single source of truth that the script was injected.
-  console.log('[4AE] v0.949 loaded on', location.href, 'readyState=', document.readyState);
+  console.log('[4AE] v0.95 loaded on', location.href, 'readyState=', document.readyState);
 
   // ═══════════════════════════════════════════════════════════════════════
   //  SETTINGS & STORAGE
@@ -35,7 +35,7 @@
   const SETTINGS_KEY = 'ffe_settings';
   const MD5_TRACK_KEY = 'ffe_tracked_md5s';
   const SAVED_THREADS_KEY = 'ffe_saved_threads';
-  const VERSION = '0.949';
+  const VERSION = '0.95';
 
   const DEFAULTS = {
     imageExpansion: true, fitWidth: true, fitHeight: true,
@@ -463,7 +463,7 @@
     /* MD5 Manager Tab */
     .ffe-md5-manager { padding: 4px 0; }
     .ffe-md5-manager .ffe-md5-list { max-height: 280px; overflow-y: auto; border: 1px solid #555; background: #1d1f21; margin: 6px 0; }
-    .ffe-md5-manager .ffe-md5-entry { display: flex; align-items: center; padding: 3px 8px; border-bottom: 1px solid #333; font-family: monospace; font-size: 11px; }
+    .ffe-md5-manager .ffe-md5-entry { display: flex; align-items: center; padding: 3px 20px 3px 8px; border-bottom: 1px solid #333; font-family: monospace; font-size: 11px; }
     .ffe-md5-manager .ffe-md5-entry:hover { background: #3a3d42; }
     .ffe-md5-manager .ffe-md5-entry span { flex: 1; overflow: hidden; text-overflow: ellipsis; }
     .ffe-md5-manager .ffe-md5-entry a { cursor: pointer; color: #888; margin-left: 8px; text-decoration: none; }
