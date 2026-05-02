@@ -396,8 +396,12 @@
     .gal-topbar { position: absolute; top: 0; left: 28px; right: 28px; display: flex; justify-content: space-between; align-items: center; padding: 4px 10px; background: rgba(0,0,0,0.6); z-index: 1; min-height: 22px; }
     .gal-labels { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
     .gal-count { white-space: nowrap; }
-    .gal-name { color: #9bf; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .gal-name:hover { text-decoration: underline; }
+    .gal-name, .gal-name-custom { color: #9bf; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .gal-name:hover, .gal-name-custom:hover { text-decoration: underline; }
+    .gal-name-sep { color: #666; flex-shrink: 0; }
+    .gal-dl-custom { color: #ddd; cursor: pointer; flex-shrink: 0; padding: 0 2px; line-height: 0; }
+    .gal-dl-custom:hover { color: #fff; }
+    .gal-dl-custom svg { width: 14px; height: 14px; vertical-align: middle; }
     .gal-buttons { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
     .gal-buttons a { cursor: pointer; color: #ddd; text-decoration: none; padding: 2px 5px; font-size: 14px; }
     .gal-buttons a:hover { color: #fff; }
@@ -679,10 +683,13 @@
       let serverName = '';
       try { serverName = new URL(link.href).pathname.split('/').filter(Boolean).pop() || ''; }
       catch { serverName = link.href.split('?')[0].split('/').pop() || ''; }
+      const customName = (filenameEl?.title || filenameEl?.textContent?.trim() || '').trim();
       entries.push({
         url: link.href,
         thumbSrc: thumb?.src || '',
-        filename: serverName || filenameEl?.title || filenameEl?.textContent?.trim() || 'image',
+        filename: serverName || customName || 'image',
+        serverFilename: serverName || '',
+        customFilename: customName,
         postNum: getPostNum(article),
         article
       });
@@ -1691,9 +1698,15 @@
       ['gal-fit-width','gal-fit-height','gal-stretch','gal-hide-thumbnails'].forEach(c => el.classList.toggle(c, !!cfg[{
         'gal-fit-width':'galFitWidth','gal-fit-height':'galFitHeight','gal-stretch':'galStretchToFit','gal-hide-thumbnails':'galHideThumbnails'
       }[c]]));
-      el.innerHTML = `<div class="gal-viewport"><div class="gal-topbar"><div class="gal-labels"><span class="gal-count"><span class="gal-count-current"></span> / <span class="gal-count-total"></span></span><a class="gal-name" target="_blank"></a></div><div class="gal-buttons"><a class="gal-start" title="Start slideshow"><i></i></a><a class="gal-stop" title="Stop slideshow"><i></i></a><a class="gal-menu-btn" title="Options">\u2630</a><a class="gal-close" title="Close (Esc)">\u00d7</a></div></div><div class="gal-menu"><label><input type="checkbox" data-opt="galFitWidth"> Fit Width</label><label><input type="checkbox" data-opt="galFitHeight"> Fit Height</label><label><input type="checkbox" data-opt="galStretchToFit"> Stretch to Fit</label><label><input type="checkbox" data-opt="galHideThumbnails"> Hide Thumbnails</label><label><input type="checkbox" data-opt="galScrollToPost"> Scroll to Post</label><label class="gal-delay-label">Slide Delay: <input type="number" min="0" step="0.5" value="${this.delay}" class="gal-delay-input"> s</label></div><div class="gal-prev" title="Previous"></div><div class="gal-image"></div><div class="gal-next" title="Next"></div></div><div class="gal-thumbnails"></div>`;
+      el.innerHTML = `<div class="gal-viewport"><div class="gal-topbar"><div class="gal-labels"><span class="gal-count"><span class="gal-count-current"></span> / <span class="gal-count-total"></span></span><a class="gal-name-custom" target="_blank"></a><a class="gal-dl-custom" title="Download with original filename"></a><span class="gal-name-sep">/</span><a class="gal-name" target="_blank"></a></div><div class="gal-buttons"><a class="gal-start" title="Start slideshow"><i></i></a><a class="gal-stop" title="Stop slideshow"><i></i></a><a class="gal-menu-btn" title="Options">\u2630</a><a class="gal-close" title="Close (Esc)">\u00d7</a></div></div><div class="gal-menu"><label><input type="checkbox" data-opt="galFitWidth"> Fit Width</label><label><input type="checkbox" data-opt="galFitHeight"> Fit Height</label><label><input type="checkbox" data-opt="galStretchToFit"> Stretch to Fit</label><label><input type="checkbox" data-opt="galHideThumbnails"> Hide Thumbnails</label><label><input type="checkbox" data-opt="galScrollToPost"> Scroll to Post</label><label class="gal-delay-label">Slide Delay: <input type="number" min="0" step="0.5" value="${this.delay}" class="gal-delay-input"> s</label></div><div class="gal-prev" title="Previous"></div><div class="gal-image"></div><div class="gal-next" title="Next"></div></div><div class="gal-thumbnails"></div>`;
       const q = s => el.querySelector(s);
-      this.nodes = { frame: q('.gal-image'), name: q('.gal-name'), countCur: q('.gal-count-current'), countTotal: q('.gal-count-total'), thumbs: q('.gal-thumbnails'), menu: q('.gal-menu'), buttons: q('.gal-buttons') };
+      this.nodes = { frame: q('.gal-image'), name: q('.gal-name'), nameCustom: q('.gal-name-custom'), dlCustom: q('.gal-dl-custom'), nameSep: q('.gal-name-sep'), countCur: q('.gal-count-current'), countTotal: q('.gal-count-total'), thumbs: q('.gal-thumbnails'), menu: q('.gal-menu'), buttons: q('.gal-buttons') };
+      this.nodes.dlCustom.appendChild(icons.download());
+      this.nodes.dlCustom.addEventListener('click', (ev) => {
+        ev.preventDefault(); ev.stopPropagation();
+        const e = this.images[this.currentIndex]; if (!e) return;
+        downloadFile(e.url, e.customFilename || e.filename);
+      });
       q('.gal-close').addEventListener('click', () => this.close());
       q('.gal-prev').addEventListener('click', () => this.navigate(-1));
       q('.gal-next').addEventListener('click', () => this.navigate(1));
@@ -1863,7 +1876,13 @@
 
       this.nodes.countCur.textContent = this.currentIndex + 1;
       this.nodes.countTotal.textContent = this.images.length;
-      this.nodes.name.href = e.url; this.nodes.name.textContent = e.filename;
+      this.nodes.name.href = e.url; this.nodes.name.textContent = e.serverFilename || e.filename;
+      const showCustom = e.customFilename && e.customFilename !== (e.serverFilename || e.filename);
+      this.nodes.nameCustom.href = e.url;
+      this.nodes.nameCustom.textContent = showCustom ? e.customFilename : '';
+      this.nodes.nameCustom.style.display = showCustom ? '' : 'none';
+      this.nodes.dlCustom.style.display = showCustom ? '' : 'none';
+      this.nodes.nameSep.style.display = showCustom ? '' : 'none';
       this.nodes.thumbs.querySelectorAll('a').forEach((a, i) => a.classList.toggle('gal-thumb-active', i === this.currentIndex));
       this.nodes.thumbs.querySelector('.gal-thumb-active')?.scrollIntoView({ block: 'nearest' });
       if (cfg.galScrollToPost && e.article) {
