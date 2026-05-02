@@ -674,10 +674,15 @@
       if (!link?.href) return;
       const thumb = article.querySelector('.post_image, .thread_image');
       const filenameEl = article.querySelector('.post_file_filename');
+      // Prefer the server-side filename from the URL path (timestamp/hash),
+      // fall back to the post's displayed filename only if the URL has none.
+      let serverName = '';
+      try { serverName = new URL(link.href).pathname.split('/').filter(Boolean).pop() || ''; }
+      catch { serverName = link.href.split('?')[0].split('/').pop() || ''; }
       entries.push({
         url: link.href,
         thumbSrc: thumb?.src || '',
-        filename: filenameEl?.title || filenameEl?.textContent?.trim() || link.href.split('/').pop(),
+        filename: serverName || filenameEl?.title || filenameEl?.textContent?.trim() || 'image',
         postNum: getPostNum(article),
         article
       });
